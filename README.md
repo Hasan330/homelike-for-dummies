@@ -1,2 +1,3 @@
-# homelike-for-dummies
-developer documentation for new developers
+# Overview
+
+> An awesome project.

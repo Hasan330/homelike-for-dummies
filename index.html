@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Homelike for dummies</title>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+    <meta name="description" content="Description" />
+    <meta
+      name="viewport"
+      content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0"
+    />
+    <link rel="stylesheet" href="//unpkg.com/docsify/lib/themes/vue.css" />
+    <style>
+      .app-name {
+        background: #1e1e1b;
+        padding-top: 50px;
+        margin-top: -50px !important;
+      }
+      .sidebar ul li.active > a {
+        color: #395e80;
+      }
+      .sidebar-toggle span {
+        background-color: #395e80;
+      }
+      h2 {
+        color: #395e80;
+      }
+      .markdown-section a {
+        color: #395e80;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      window.$docsify = {
+        loadSidebar: true,
+        subMaxLevel: 3,
+        auto2top: true,
+        notFoundPage: "404.md",
+        logo: "/docs/_media/homelike-for-dummies.png",
+        name: "Homelike for Dummies"
+      };
+    </script>
+    <script src="//unpkg.com/docsify/lib/docsify.min.js"></script>
+  </body>
+</html>

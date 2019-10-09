@@ -1,0 +1,74 @@
+# Default values for microservice.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 2
+
+# What's the port of your app is listening on?
+containerPort: 8080
+
+# Don't change these, they'll be set automatically in .circleci/config.yml
+image:
+  repository: nginx
+  tag: stable
+  pullPolicy: IfNotPresent
+nameOverride: ""
+fullnameOverride: ""
+
+# How do you want to expose your service? https://kubernetes.io/docs/tutorials/kubernetes-basics/expose/expose-intro/
+service:
+  type: ClusterIP
+  port: 80
+
+# You're health endpoint
+livenessProbe:
+  path: /
+
+# You're readiness endpoint
+readinessProbe:
+  path: /
+
+
+# Runtime environment variables
+environments:
+  - name: PORT
+    value: "8080"
+# Ingress, enable it if you want your services to be accessed externally
+ingress:
+  enabled: true
+  #https://github.com/kubernetes/ingress-nginx/blob/master/docs/user-guide/nginx-configuration/annotations.md
+  annotations: {
+    kubernetes.io/ingress.class: nginx,
+    nginx.ingress.kubernetes.io/whitelist-source-range: 0.0.0.0/0
+  }
+  #The path to be used to route traffic to your serivce
+  path:
+    - /
+  # You don't have to change this
+  hosts:
+    - chart-example.local
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - chart-example.local
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #  cpu: 100m
+  #  memory: 128Mi
+  # requests:
+  #  cpu: 100m
+  #  memory: 128Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

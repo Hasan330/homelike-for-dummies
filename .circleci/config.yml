@@ -1,0 +1,302 @@
+
+version: 2.1
+
+references:
+  branches: &branches
+    branches:
+      only:
+       - staging
+  production-branches: &production-branches
+    branches:
+      only:
+       - master
+
+jobs:
+  build:
+    machine:
+      enabled: true
+    steps:
+      - checkout
+
+      - run:
+          name: Build Image
+          command: |
+            if [ "${CIRCLE_BRANCH}" != "master" ]; then
+              docker build -t $CIRCLE_PROJECT_REPONAME .
+            else
+              docker build -t $CIRCLE_PROJECT_REPONAME .
+            fi
+
+      - run:
+          name: Save container image
+          command: |
+            mkdir -p workspace
+            docker save $CIRCLE_PROJECT_REPONAME | gzip -c >  workspace/app.tar.gz
+
+      - persist_to_workspace:
+          root: workspace
+          paths:
+            - app.tar.gz
+  push:
+    machine:
+      enabled: true
+    steps:
+      - checkout
+
+      - attach_workspace:
+          at: /tmp/workspace
+
+      - run:
+          name: Restore Container Image
+          command: |
+            docker load -i /tmp/workspace/app.tar.gz
+
+      - run:
+          name: Configure Aws
+          command: |
+            if [ "${CIRCLE_BRANCH}" == "master" ]; then
+              aws configure set region eu-central-1
+              eval `aws ecr get-login --no-include-email`
+            else
+              aws configure set region eu-west-1
+              eval `aws ecr get-login --no-include-email`
+            fi
+
+      - run:
+          name: Check if the repository exist, create it if not
+          command: |
+            aws ecr describe-repositories | jq -e '.[][]| select(.repositoryName==env.CIRCLE_PROJECT_REPONAME)' ||  aws ecr create-repository --repository-name $CIRCLE_PROJECT_REPONAME
+
+      - run:
+          name: Tag New Images
+          command: |
+            export TAG=$(echo ${CIRCLE_BRANCH/\//-} | tr "[:upper:]" "[:lower:]")
+            if [ "${CIRCLE_BRANCH}" == "master" ]; then
+               docker tag $CIRCLE_PROJECT_REPONAME $AWS_ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/$CIRCLE_PROJECT_REPONAME:$TAG
+               docker tag $CIRCLE_PROJECT_REPONAME $AWS_ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/$CIRCLE_PROJECT_REPONAME:$CIRCLE_SHA1
+            else
+              docker tag $CIRCLE_PROJECT_REPONAME $AWS_ACCOUNT_ID.dkr.ecr.eu-west-1.amazonaws.com/$CIRCLE_PROJECT_REPONAME:$TAG
+              docker tag $CIRCLE_PROJECT_REPONAME $AWS_ACCOUNT_ID.dkr.ecr.eu-west-1.amazonaws.com/$CIRCLE_PROJECT_REPONAME:$CIRCLE_SHA1
+            fi
+
+      - run:
+          name: Push Images To ECR Registery
+          command: |
+            export TAG=$(echo ${CIRCLE_BRANCH/\//-} | tr "[:upper:]" "[:lower:]")
+            if [ "${CIRCLE_BRANCH}" == "master" ]; then
+              docker push $AWS_ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/$CIRCLE_PROJECT_REPONAME:$TAG
+              docker push $AWS_ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/$CIRCLE_PROJECT_REPONAME:$CIRCLE_SHA1
+            else
+              docker push $AWS_ACCOUNT_ID.dkr.ecr.eu-west-1.amazonaws.com/$CIRCLE_PROJECT_REPONAME:$TAG
+              docker push $AWS_ACCOUNT_ID.dkr.ecr.eu-west-1.amazonaws.com/$CIRCLE_PROJECT_REPONAME:$CIRCLE_SHA1
+            fi
+
+  test:
+    machine:
+      enabled: true
+    steps:
+      - checkout
+
+      - attach_workspace:
+          at: /tmp/workspace
+
+      - run:
+          name: Restore Container Image
+          command: docker load -i /tmp/workspace/app.tar.gz
+
+  deploy:
+    machine:
+      enabled: true
+    steps:
+      - checkout
+
+      - run:
+          name: Install kubectl
+          command: |
+            curl -so kubectl https://amazon-eks.s3-us-west-2.amazonaws.com/1.10.3/2018-07-26/bin/linux/amd64/kubectl
+            chmod +x ./kubectl
+            mv kubectl $HOME/bin
+            kubectl version --short --client
+
+      - run:
+          name: Install aws-iam-authenticator
+          command: |
+            curl -so aws-iam-authenticator https://amazon-eks.s3-us-west-2.amazonaws.com/1.10.3/2018-07-26/bin/linux/amd64/aws-iam-authenticator
+            chmod +x ./aws-iam-authenticator
+            mv aws-iam-authenticator $HOME/bin
+
+      - run:
+          name: Install pip
+          command: pip install --quiet --upgrade awscli
+
+      - run:
+          name: Configure kubectl using awscli
+          command: |
+              aws configure set region eu-west-1
+              aws eks update-kubeconfig --name hl
+
+      - run:
+          name: Install And Configure helm
+          command: |
+            curl -sO https://storage.googleapis.com/kubernetes-helm/helm-v2.11.0-linux-amd64.tar.gz
+            tar xf helm-v2.11.0-linux-amd64.tar.gz
+            mv linux-amd64/helm $HOME/bin
+            helm init --service-account tiller
+            helm plugin install https://github.com/hypnoglow/helm-s3.git
+            helm repo add hl-stable s3://hl-charts/hl-stable
+
+      - run:
+          name: Deploy A New Release
+          environment:
+            CHART_VERSION: "0.1.0"
+          command: |
+            set -x
+            export RELEASE_NAME=$(echo ${CIRCLE_BRANCH/\//-} | tr "[:upper:]" "[:lower:]")-$CIRCLE_PROJECT_REPONAME
+            export HOST=$(echo ${CIRCLE_BRANCH/\//-} | tr "[:upper:]" "[:lower:]")-$CIRCLE_PROJECT_REPONAME
+            helm upgrade --debug --version $CHART_VERSION --install --namespace staging --set fullnameOverride=$RELEASE_NAME --set image.tag=$CIRCLE_SHA1 --set ingress.hosts={$HOST.homelike.xyz} --set image.repository=$AWS_ACCOUNT_ID.dkr.ecr.eu-west-1.amazonaws.com/$CIRCLE_PROJECT_REPONAME $RELEASE_NAME hl-stable/microservice -f deploy/values.yaml
+
+      - run:
+          name: Verify The Rolling Deployment
+          command: |
+            export RELEASE_NAME=$(echo ${CIRCLE_BRANCH/\//-} | tr "[:upper:]" "[:lower:]")-$CIRCLE_PROJECT_REPONAME
+            kubectl -n staging rollout status deployment $RELEASE_NAME
+
+  production-deploy:
+    machine:
+      enabled: true
+    steps:
+      - checkout
+
+      - run:
+          name: Install kubectl
+          command: |
+            curl -so kubectl https://amazon-eks.s3-us-west-2.amazonaws.com/1.10.3/2018-07-26/bin/linux/amd64/kubectl
+            chmod +x ./kubectl
+            mv kubectl $HOME/bin
+            kubectl version --short --client
+
+      - run:
+          name: Install aws-iam-authenticator
+          command: |
+            curl -so aws-iam-authenticator https://amazon-eks.s3-us-west-2.amazonaws.com/1.10.3/2018-07-26/bin/linux/amd64/aws-iam-authenticator
+            chmod +x ./aws-iam-authenticator
+            mv aws-iam-authenticator $HOME/bin
+
+      - run:
+          name: Install pip
+          command: pip install --quiet --upgrade awscli
+
+      - run:
+          name: Configure kubectl using awscli
+          command: |
+            aws configure set region eu-central-1
+            aws eks update-kubeconfig --name hl-production
+
+      - run:
+          environment:
+            AWS_REGION: "eu-west-1" # Helm Charts Bucket Region Has nothing to do with the deployment logic
+          name: Install And Configure helm
+          command: |
+            curl -sO https://storage.googleapis.com/kubernetes-helm/helm-v2.11.0-linux-amd64.tar.gz
+            tar xf helm-v2.11.0-linux-amd64.tar.gz
+            mv linux-amd64/helm $HOME/bin
+            helm init --service-account tiller
+            helm plugin install https://github.com/hypnoglow/helm-s3.git
+            helm repo add hl-stable s3://hl-charts/hl-stable
+
+      - run:
+          name: Deploy A New Release
+          environment:
+            CHART_VERSION: "0.1.0"
+            AWS_REGION: "eu-west-1" # Helm Charts Bucket Region Has nothing to do with the deployment logic
+          command: |
+            helm upgrade --debug --version $CHART_VERSION --install --namespace production --set fullnameOverride=$CIRCLE_PROJECT_REPONAME --set image.tag=$CIRCLE_SHA1 --set ingress.hosts={dev-standards.thehomelike.com} --set image.repository=$AWS_ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/$CIRCLE_PROJECT_REPONAME $CIRCLE_PROJECT_REPONAME hl-stable/microservice -f deploy/values-production.yaml
+
+      - run:
+          name: Verify The Rolling Deployment
+          command: |
+            kubectl -n production rollout status deployment $CIRCLE_PROJECT_REPONAME
+
+  build-and-deploy:
+    docker:
+      - image: circleci/node:8.11.2
+    steps:
+      - checkout
+
+      - run:
+          name: install packages
+          command: cd aws && npm install
+
+      - run:
+          name: lint
+          command: cd aws && npm run lint
+
+      - run:
+          name: tests
+          command: cd aws && npm run test
+
+      - run:
+          name: install serverless
+          command: sudo npm i -g serverless
+
+      - run:
+          name: deploy
+          command: |
+            cd aws
+            if [ "${CIRCLE_BRANCH}" == "master" ]; then
+              SLS_DEBUG=* sls deploy --stage "production" --git-commit $(git log --pretty=format:'%h' -n 1)
+            elif [ "${CIRCLE_BRANCH}" == "staging" ]; then
+              SLS_DEBUG=* sls deploy --stage "${CIRCLE_BRANCH}" --git-commit $(git log --pretty=format:'%h' -n 1)
+            else
+                echo "NO DEPLOY (only deploying in staging and production)"
+            fi
+
+workflows:
+  version: 2
+  deployment:
+    jobs:
+      - build:
+          filters:
+            *branches
+      - test:
+          filters:
+            *branches
+          requires:
+            - build
+      - push:
+          context: AWS
+          requires:
+            - test
+          filters:
+            *branches
+      - deploy:
+          context: AWS
+          filters:
+            *branches
+          requires:
+            - push
+            - test
+
+  production-deployment:
+    jobs:
+      - build:
+          filters:
+            *production-branches
+      - test:
+          filters:
+            *production-branches
+          requires:
+            - build
+      - push:
+          context: AWS
+          requires:
+            - test
+          filters:
+            *production-branches
+      - production-deploy:
+          context: AWS
+          filters:
+            *production-branches
+          requires:
+            - push
+            - test

@@ -1,0 +1,3 @@
+.circleci/terraform/.terraform/*
+/node_modules
+/.idea

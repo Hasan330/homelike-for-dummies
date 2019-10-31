@@ -1,4 +1,13 @@
-## Different codes, same messge:
+# API Error Codes:
+
+## 1) Current API Errors:
+[Production Error Codes](https://github.com/homelike/api/blob/master/src/utils/error-translations/error-codes.json)
+
+------
+
+## 2) Legacy Errors (Use only as a reference):
+
+### Different codes, same messge:
 
 ​```
 E0000 && E0001 --> Invalid Key
@@ -11,7 +20,7 @@ E0092 && E0093 --> Token is not provided!
 E0094 && E0095 --> Duplicate IBAN!
 ​```
 
-## Same Codes, different message:
+### Same Codes, different message:
 
 ​```
 E0011:
@@ -29,7 +38,7 @@ Legal entity is marked for deletion
 IBAN is not provided!
 ​```
 
-## Different Codes, no message:
+### Different Codes, no message:
 
 ​```
 E0008
@@ -43,7 +52,7 @@ E0059
 E0060
 ​```
 
-## Codes not found in the project:
+### Codes not found in the project:
 
 ​```
 E0026
@@ -55,7 +64,7 @@ E0079
 E0080
 ​```
 
-## Errors with no codes:
+### Errors with no codes:
 ```
 BadRequest(`No request found with booking code ${obj.code}`); --> NO\*REQUEST_FOUND
 BadRequest('Customers already created, trying to create multiple customer'); --> CUSTOMER_ALREADY_EXISTS
